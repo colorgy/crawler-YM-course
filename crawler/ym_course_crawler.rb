@@ -4,81 +4,127 @@ require 'pry'
 
 class YangMingUniversityCrawler
 
-	def initialize year: nil, term: nil, update_progress: nil, after_each: nil
-		# 只能看最新的課程狀態！！！學年度與學期無法選擇！！！
-  @year = year-1911
-  @term = term
-  @update_progress_proc = update_progress
-  @after_each_proc = after_each
+  PERIODS = {
+    "1" => 1,
+    "2" => 2,
+    "3" => 3,
+    "4" => 4,
+    "N" => 5,
+    "5" => 6,
+    "6" => 7,
+    "7" => 8,
+    "8" => 9,
+    "9" => 10,
+    "A" => 11,
+    "B" => 12,
+    "C" => 13,
+    }
 
-  @query_url =  RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS0101List_2?Page=1&PageSize=999&SortColumn=LessonNo&SortDirection=Ascending&Filters.ClassCode=&Filters.Tr_ClassCode=&SearchClass=", method: :get, verify_ssl: false)
- end
+  def initialize year: nil, term: nil, update_progress: nil, after_each: nil
+    # 只能看最新的課程狀態！！！學年度與學期無法選擇！！！
+    @year = year-1911
+    @term = term
+    @update_progress_proc = update_progress
+    @after_each_proc = after_each
 
- def courses
- 	@courses = []
+    @query_url =  RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS01S01", method: :get, verify_ssl: false)
+  end
 
- 	doc = Nokogiri::HTML(@query_url)
- 	data_c = doc.css('table')[0].css('select')[0].css('option')
- 	data_i = doc.css('table')[0].css('select')[1].css('option')
+  def courses
+    @courses = []
 
- 	for i in 1..data_c.count - 1
+    doc = Nokogiri::HTML(@query_url)
 
-	 	department_code = data_c[i].text[0..4]
-	 	department = data_c[i].text[5..-1]
+    (0..1).each do |option|   # 0 => 大學部, 1 => 研究所
 
-	  result_url =  RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS0101List_2?Page=1&PageSize=999&SortColumn=LessonNo&SortDirection=Ascending&Filters.ClassCode=#{department_code}&Filters.Tr_ClassCode=&SearchClass=college", method: :get, verify_ssl: false)
-	  doc = Nokogiri::HTML(result_url)
+      doc.css('table:first-child select')[option].css('option:nth-child(n+2)').map{|opt| [opt[:value], opt.text]}.each do |dept_c, dept_n|
 
-	  for j in 2..doc.css('table')[2].css('tr').count - 1
- 		data = []
+        tr_dept_c = nil
+        if option == 1
+          tr_dept_c = dept_c
+          dept_c = nil
+        end
 
-	  	for k in 0..doc.css('table')[2].css('tr')[j].css('td').count - 1
-		  	data[k] = doc.css('table')[2].css('tr')[j].css('td')[k].text
-		  end
+        result_url =  RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS0101List_2?Page=1&PageSize=999&SortColumn=LessonNo&SortDirection=Ascending&Filters.ClassCode=#{dept_c}&Filters.Tr_ClassCode=#{tr_dept_c}", method: :get, verify_ssl: false)
+        doc = Nokogiri::HTML(result_url)
+        dept_c = tr_dept_c if dept_c == nil
 
-	  	course = {
-	  		year: @year,
-	  		term: @term,
-	  		department_code: department_code,
-	  		department: department,
-	  		general_code: data[0],
-	  		name: data[1],
-	  		required: data[2],
-	  		credits: data[3],
-	  		hours: data[4],
-	  		experiment_hours: data[5],
-	  		day_1: data[6],
-	  		day_2: data[7],
-	  		day_3: data[8],
-	  		day_4: data[9],
-	  		day_5: data[10],
-	  		day_6: data[11],
-	  		day_7: data[12],
-	  		# department: data[13],
-	  		faculty: data[14],
-	  		lecturer: data[15],
-	  		people_limit: data[16],
-	  		people: data[17],
-	  		people_now: data[18],
-	  		level: data[19],
-	  		full_english: data[20],
-	  		reading_with_class: data[21],
-	  		interscholastic_course: data[22],
-	  		notes: data[23],
-	  	}
+        doc.css('table[id="ListTable"] tbody tr').map{|tr| tr}.each do |tr|
+          data = tr.css('td').map{|td| td.text}
+          syllabus_url = tr.css('td:nth-child(2) a').map{|a| a[:href]}[0]
 
-	  	@after_each_proc.call(course: course) if @after_each_proc
+          course_days, course_periods, course_locations = [], [], []
+          {1 => data[6], 2 => data[7], 3 => data[8], 4 => data[9], 5 => data[10], 6 => data[11], 7 => data[12]}.each do |k, v|
+            next if v.scan(/\w+/)[0] == nil
+            v.scan(/\w+/)[0].scan(/\w/).each do |period|
+              course_days << k
+              course_periods << PERIODS[period]
+              course_locations << v.scan(/\w+(\S+)/)[0][0] if v.scan(/\w+(\S+)/)[0] != nil
+            end
+          end
 
-	 		# binding.pry
-	  	@courses << course
-	  end
+          course = {
+            year: @year,    # 西元年
+            term: @term,    # 學期 (第一學期=1，第二學期=2)
+            name: data[1],    # 課程名稱
+            lecturer: data[15],    # 授課教師
+            credits: data[3].to_i,    # 學分數
+            code: "#{@year}-#{@term}-#{dept_c}-?(#{data[0]})?",
+            # general_code: data[0],    # 選課代碼
+            url: syllabus_url,    # 課程大綱之類的連結(如果有的話)
+            required: data[2].include?('必'),    # 必修或選修
+            department: dept_n,    # 開課系所
+            # department_code: dept_c,
+            # notes: data[23],
+            # hours: data[4],
+            # experiment_hours: data[5],
+            # faculty: data[14],
+            # people_limit: data[16],
+            # people: data[17],
+            # people_now: data[18],
+            # level: data[19],
+            # full_english: data[20],
+            # reading_with_class: data[21],
+            # interscholastic_course: data[22],
+            day_1: course_days[0],
+            day_2: course_days[1],
+            day_3: course_days[2],
+            day_4: course_days[3],
+            day_5: course_days[4],
+            day_6: course_days[5],
+            day_7: course_days[6],
+            day_8: course_days[7],
+            day_9: course_days[8],
+            period_1: course_periods[0],
+            period_2: course_periods[1],
+            period_3: course_periods[2],
+            period_4: course_periods[3],
+            period_5: course_periods[4],
+            period_6: course_periods[5],
+            period_7: course_periods[6],
+            period_8: course_periods[7],
+            period_9: course_periods[8],
+            location_1: course_locations[0],
+            location_2: course_locations[1],
+            location_3: course_locations[2],
+            location_4: course_locations[3],
+            location_5: course_locations[4],
+            location_6: course_locations[5],
+            location_7: course_locations[6],
+            location_8: course_locations[7],
+            location_9: course_locations[8],
+            }
 
-	 end
+          @after_each_proc.call(course: course) if @after_each_proc
 
-	 @courses
- end
-
+          @courses << course
+    # binding.pry
+        end
+      end
+    end
+    @courses
+  end
 end
 
-crawler = YangMingUniversityCrawler.new(year: 2015, term: 1)
-File.write('courses.json', JSON.pretty_generate(crawler.courses()))
+# crawler = YangMingUniversityCrawler.new(year: 2015, term: 1)
+# File.write('courses.json', JSON.pretty_generate(crawler.courses()))

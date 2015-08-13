@@ -2,7 +2,7 @@ require 'crawler_rocks'
 require 'json'
 require 'pry'
 
-class YangMingUniversityCrawler
+class YmCourseCrawler
 
   PERIODS = {
     "1" => 1,
@@ -27,13 +27,13 @@ class YangMingUniversityCrawler
     @update_progress_proc = update_progress
     @after_each_proc = after_each
 
-    @query_url =  RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS01S01", method: :get, verify_ssl: false)
+    @query_url = "https://portal.ym.edu.tw/course/CSCS/CSCS01S01"
   end
 
   def courses
     @courses = []
 
-    doc = Nokogiri::HTML(@query_url)
+    doc = Nokogiri::HTML( RestClient::Request.execute(url: @query_url, method: :get, verify_ssl: false))
 
     (0..1).each do |option|   # 0 => 大學部, 1 => 研究所
 
@@ -69,12 +69,12 @@ class YangMingUniversityCrawler
             name: data[1],    # 課程名稱
             lecturer: data[15],    # 授課教師
             credits: data[3].to_i,    # 學分數
-            code: "#{@year}-#{@term}-#{dept_c}-?(#{data[0]})?",
-            # general_code: data[0],    # 選課代碼
+            code: "#{@year}-#{@term}-#{dept_c}-#{data[0]}",
+            general_code: data[0],    # 選課代碼
             url: syllabus_url,    # 課程大綱之類的連結(如果有的話)
             required: data[2].include?('必'),    # 必修或選修
             department: dept_n,    # 開課系所
-            # department_code: dept_c,
+            department_code: dept_c,
             # notes: data[23],
             # hours: data[4],
             # experiment_hours: data[5],
@@ -126,5 +126,5 @@ class YangMingUniversityCrawler
   end
 end
 
-# crawler = YangMingUniversityCrawler.new(year: 2015, term: 1)
+# crawler = YmCourseCrawler.new(year: 2015, term: 1)
 # File.write('courses.json', JSON.pretty_generate(crawler.courses()))

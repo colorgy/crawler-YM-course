@@ -22,7 +22,7 @@ class YmCourseCrawler
 
   def initialize year: nil, term: nil, update_progress: nil, after_each: nil
     # 只能看最新的課程狀態！！！學年度與學期無法選擇！！！
-    @year = year-1911
+    @year = year
     @term = term
     @update_progress_proc = update_progress
     @after_each_proc = after_each
@@ -45,7 +45,7 @@ class YmCourseCrawler
           dept_c = nil
         end
 
-        result_url =  RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS0101List_2?Page=1&PageSize=999&SortColumn=LessonNo&SortDirection=Ascending&Filters.ClassCode=#{dept_c}&Filters.Tr_ClassCode=#{tr_dept_c}", method: :get, verify_ssl: false)
+        result_url = RestClient::Request.execute(url: "https://portal.ym.edu.tw/course/CSCS/CSCS0101List_2?Page=1&PageSize=999&SortColumn=LessonNo&SortDirection=Ascending&Filters.ClassCode=#{dept_c}&Filters.Tr_ClassCode=#{tr_dept_c}", method: :get, verify_ssl: false)
         doc = Nokogiri::HTML(result_url)
         dept_c = tr_dept_c if dept_c == nil
 
@@ -69,7 +69,7 @@ class YmCourseCrawler
             name: data[1],    # 課程名稱
             lecturer: data[15],    # 授課教師
             credits: data[3].to_i,    # 學分數
-            code: "#{@year}-#{@term}-#{dept_c}-#{data[0]}",
+            code: "#{@year-1911}-#{@term}-#{dept_c}-#{data[0]}",
             general_code: data[0],    # 選課代碼
             url: syllabus_url,    # 課程大綱之類的連結(如果有的話)
             required: data[2].include?('必'),    # 必修或選修
